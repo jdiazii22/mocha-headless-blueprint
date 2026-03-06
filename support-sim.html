@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WPE Support Sim Engine</title>
+    
+    <!-- Dependencies -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Firebase (UMD Version) -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/lucide-react@latest"></script>
+
+    <style>
+        body { margin: 0; padding: 0; background: #f8f9f9; }
+        #wpe-sim-root { height: 100vh; }
+    </style>
+</head>
+<body>
+    <div id="wpe-sim-root"></div>
+
+    <script type="text/babel">
+        // --- 1. CONFIGURATION: UPDATED WITH YOUR FIREBASE PROJECT DATA ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyBlIzGOyaVJPPsbXnHIhSTZtALodWqpDHc",
+            authDomain: "project-mocha-9f69a.firebaseapp.com",
+            projectId: "project-mocha-9f69a",
+            storageBucket: "project-mocha-9f69a.firebasestorage.app",
+            messagingSenderId: "745087558038",
+            appId: "1:745087558038:web:06ec25ffe900acc58afdb7"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        const appId = 'wpe-sim-zendesk';
+
+        // Destructure Lucide components from global scope
+        const { 
+            Send, Zap, MessageSquare, Users, Settings, ShieldAlert, RotateCcw, 
+            ChevronRight, Target, Clock, BarChart3, AlertCircle, CheckCircle2, Info,
+            Database, Code, LifeBuoy, Trophy, User, Layout, Search, Plus, Bell,
+            HelpCircle, ChevronDown, Paperclip, Smile, MoreHorizontal, ExternalLink,
+            BookOpen, Hash, History, MousePointer2, LogOut, Terminal, Activity, Globe
+        } = LucideReact;
+
+        const { useState, useEffect, useRef } = React;
+
+        // --- Simulation Data ---
+        const SCENARIOS = {
+            '500 Error': { 
+                cause: 'Akismet Update Conflict', 
+                logs: 'PHP Fatal error: Uncaught Error in akismet.php on line 42',
+                plugins: 'Akismet (v5.0 - Updated today), Yoast, Jetpack',
+                solution: 'akismet'
+            },
+            '404 Loop': { 
+                cause: 'Permalink Corruption', 
+                logs: 'No server errors found. Access logs show 404 on all sub-pages.',
+                plugins: 'WooCommerce, Classic Editor',
+                solution: 'permalink'
+            },
+            'Slow Crawl': { 
+                cause: 'Image Widget Pro (v2.1) Query Bloat', 
+                logs: 'Slow Query Log: SELECT * FROM wp_options WHERE option_name LIKE "_transient_timeout_..."',
+                plugins: 'Image Widget Pro (v2.1), Elementor, WP Rocket',
+                solution: 'image widget'
+            },
+            'Login Lockout': { 
+                cause: 'WP_SITEURL Mismatch in wp-config', 
+                logs: '301 Redirect Loop detected for /wp-admin',
+                plugins: 'Really Simple SSL, Wordfence',
+                solution: 'config'
+            },
+            'Mixed Content': { 
+                cause: 'Hardcoded HTTP Links in Theme', 
+                logs: 'Console: Mixed Content: Insecure resource http://...',
+                plugins: 'Contact Form 7, Custom Theme',
+                solution: 'http'
+            }
+        };
+
+        const PERSONAS = {
+            GARNET: { 
+                name: 'Garnet', style: 'The Director', drive: 'Efficiency', color: 'bg-rose-600',
+                description: 'High-pressure, results-oriented leader. Hates fluff.',
+                redHerring: "I have a flight in 20 minutes. Don't waste time with small talk.",
+                hooks: {
+                    '500 Error': "My site is down and I'm losing sales. Fix it now.",
+                    '404 Loop': "My blog links are broken. This is unacceptable, I need an ETA.",
+                    'Slow Crawl': "The site is lagging. I can't run a business like this.",
+                    'Login Lockout': "I'm locked out of my own dashboard. Get me back in immediately.",
+                    'Mixed Content': "The site says 'Not Secure.' This looks unprofessional."
+                }
+            },
+            PEARL: { 
+                name: 'Pearl', style: 'The Thinker', drive: 'Accuracy', color: 'bg-blue-400',
+                description: 'Precise, logical, technical specialist. Respects data.',
+                redHerring: "I also noticed the font kerning in the footer changed by about 1 pixel.",
+                hooks: {
+                    '500 Error': "I'm seeing a White Screen of Death after updating Akismet.",
+                    '404 Loop': "Homepage resolves, but all subdirectories return a 404 error.",
+                    'Slow Crawl': "TTFB is over 5000ms. I suspect the recent image uploads.",
+                    'Login Lockout': "Getting a 'Too Many Redirects' error specifically on /wp-admin.",
+                    'Mixed Content': "SSL is active, but I'm seeing insecure passive content warnings."
+                }
+            },
+            STEVEN: { 
+                name: 'Steven', style: 'The Relator', drive: 'Consensus', color: 'bg-rose-300',
+                description: 'Collaborative, thorough, and needs constant reassurance.',
+                redHerring: "My cat actually jumped on my keyboard. Do you think she broke a key?",
+                hooks: {
+                    '500 Error': "Oh no, the site is gone! Did I break something important?",
+                    '404 Loop': "I'm worried our readers can't find our posts.",
+                    'Slow Crawl': "Everything is moving so slowly... is it safe to keep working?",
+                    'Login Lockout': "It won't let me log in and I'm scared I've lost my password.",
+                    'Mixed Content': "It says 'Not Secure' at the top... is our data at risk?"
+                }
+            },
+            AMETHYST: { 
+                name: 'Amethyst', style: 'The Socializer', drive: 'Vision', color: 'bg-purple-500',
+                description: 'Big-picture, metaphorical, and high energy. Focuses on vibe.',
+                redHerring: "I think the site's logo looks a bit more 'purple' today too. Vibe is weird.",
+                hooks: {
+                    '500 Error': "The site just went totally blank on me. It's a total ghost town.",
+                    '404 Loop': "It's like the heart of the site is missing. The links go nowhere!",
+                    'Slow Crawl': "The site feels like it's walking through mud today. No spark.",
+                    'Login Lockout': "The door is locked! It keeps looping me back to the start.",
+                    'Mixed Content': "The site has this ugly warning on it. It’s ruining the whole vibe."
+                }
+            }
+        };
+
+        const FLUFF_WORDS = ['glitch', 'hiccup', 'thingy', 'oopsie', 'cutesy', 'magic', 'gremlins'];
+        const JARGON_WORDS = ['propagate', 'handshake', '.htaccess', 'sftp', 'endpoint', 'header', 'latency', 'ttfb', 'cache', 'regression'];
+        const SUBSTANTIVE_KEYWORDS = ['fixed', 'checked', 'found', 'reset', 'logs', 'resolved', 'try', 'setting', 'plugin', 'investigating'];
+
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [techName, setTechName] = useState(localStorage.getItem('wpe_sim_tech_name') || '');
+            const [view, setView] = useState('auth'); 
+            const [session, setSession] = useState(null);
+            const [inputValue, setInputValue] = useState('');
+            const [isTyping, setIsTyping] = useState(false);
+            const [isTrainerMode, setIsTrainerMode] = useState(false);
+            const [leaderboard, setLeaderboard] = useState([]);
+            const [nonSubstantiveCount, setNonSubstantiveCount] = useState(0);
+            const [isSaving, setIsSaving] = useState(false);
+            const scrollRef = useRef(null);
+
+            useEffect(() => {
+                const unsubscribe = auth.onAuthStateChanged((u) => {
+                    if (!u) {
+                        auth.signInAnonymously().catch(e => console.error(e));
+                    } else {
+                        setUser(u);
+                        if (view === 'auth') setView('portal');
+                    }
+                });
+                return () => unsubscribe();
+            }, []);
+
+            useEffect(() => {
+                if (!user) return;
+                const scoresRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('scores');
+                const unsubscribe = scoresRef.orderBy('score', 'desc').limit(10).onSnapshot((snapshot) => {
+                    const scores = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setLeaderboard(scores);
+                }, err => console.error(err));
+                return () => unsubscribe();
+            }, [user]);
+
+            useEffect(() => {
+                if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+            }, [session?.history, isTyping]);
+
+            const initSimulation = () => {
+                if (!techName.trim()) return;
+                localStorage.setItem('wpe_sim_tech_name', techName);
+                const pKeys = Object.keys(PERSONAS);
+                const persona = PERSONAS[pKeys[Math.floor(Math.random() * pKeys.length)]];
+                const sKeys = Object.keys(SCENARIOS);
+                const sKey = sKeys[Math.floor(Math.random() * sKeys.length)];
+                const techLevel = Math.floor(Math.random() * 4) + 2; 
+
+                setSession({
+                    persona,
+                    scenarioName: sKey,
+                    scenarioData: SCENARIOS[sKey],
+                    techLevel,
+                    patience: 100,
+                    history: [{ role: 'customer', text: persona.hooks[sKey], time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }],
+                    revealed: { url: false, logs: false, plugins: false },
+                    deltas: [],
+                    solved: false,
+                    startTime: Date.now()
+                });
+                setNonSubstantiveCount(0);
+                setView('chat');
+            };
+
+            const processResponse = (text) => {
+                const lower = text.toLowerCase();
+                let delta = 0;
+                const newDeltas = [];
+
+                if (lower.includes('url') || lower.includes('address')) {
+                    if (!session.revealed.url) { delta += 10; newDeltas.push({ msg: "Identified need for URL", val: 10 }); session.revealed.url = true; }
+                }
+                if (lower.includes('log') || lower.includes('error')) {
+                    if (!session.revealed.logs) { delta += 10; newDeltas.push({ msg: "Identified need for Logs", val: 10 }); session.revealed.logs = true; }
+                }
+                if (lower.includes('plugin')) {
+                    if (!session.revealed.plugins) { delta += 10; newDeltas.push({ msg: "Identified need for Plugin list", val: 10 }); session.revealed.plugins = true; }
+                }
+
+                if (session.techLevel >= 4) {
+                    const fluff = FLUFF_WORDS.filter(w => lower.includes(w));
+                    if (fluff.length > 0) { delta -= 15; newDeltas.push({ msg: `Fluff used with High-Tech user: ${fluff[0]}`, val: -15 }); }
+                } else {
+                    const jargon = JARGON_WORDS.filter(w => lower.includes(w));
+                    if (jargon.length > 0) { delta -= 15; newDeltas.push({ msg: `Jargon used with Low-Tech user: ${jargon[0]}`, val: -15 }); }
+                }
+
+                const isSubstantive = SUBSTANTIVE_KEYWORDS.some(k => lower.includes(k)) || text.length > 50;
+                if (!isSubstantive) {
+                    const nextCount = nonSubstantiveCount + 1;
+                    if (nextCount >= 2) { delta -= 5; newDeltas.push({ msg: "Non-substantive update delay", val: -5 }); setNonSubstantiveCount(0); }
+                    else setNonSubstantiveCount(nextCount);
+                } else {
+                    setNonSubstantiveCount(0);
+                }
+
+                if (lower.includes(session.scenarioData.solution)) {
+                    if (!session.solved) { delta += 30; newDeltas.push({ msg: "Correct Diagnosis Found", val: 30 }); session.solved = true; }
+                }
+
+                return { delta, newDeltas };
+            };
+
+            const handleSend = () => {
+                if (!inputValue.trim()) return;
+                const impact = processResponse(inputValue);
+                const newPatience = Math.min(100, Math.max(0, session.patience + impact.delta));
+                
+                const newHistory = [...session.history, { 
+                    role: 'agent', 
+                    text: inputValue, 
+                    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+                }];
+
+                setSession({
+                    ...session,
+                    patience: newPatience,
+                    history: newHistory,
+                    deltas: [...impact.newDeltas, ...session.deltas].slice(0, 10)
+                });
+
+                setInputValue('');
+                setIsTyping(true);
+
+                setTimeout(() => {
+                    setIsTyping(false);
+                    let reply = "";
+                    const lastAgent = inputValue.toLowerCase();
+                    
+                    if (lastAgent.includes('url')) reply = "The site is https://highfivemachine.com.";
+                    else if (lastAgent.includes('log')) reply = `I checked and found this: "${session.scenarioData.logs}"`;
+                    else if (lastAgent.includes('plugin')) reply = `Here are my active plugins: ${session.scenarioData.plugins}.`;
+                    else if (Math.random() > 0.7) reply = session.persona.redHerring;
+                    else {
+                        if (newPatience > 80) reply = "Thanks for looking into this. Any progress?";
+                        else if (newPatience > 40) reply = "I'm starting to get worried. This is taking too long.";
+                        else if (newPatience > 20) reply = "Can I just get an ETA? This is unacceptable.";
+                        else reply = "Transfer me to a manager right now.";
+                    }
+
+                    setSession(prev => ({
+                        ...prev,
+                        history: [...prev.history, { role: 'customer', text: reply, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]
+                    }));
+                }, 1200);
+            };
+
+            const finalizeSession = async () => {
+                if (isSaving) return;
+                setIsSaving(true);
+                try {
+                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('scores').add({
+                        techName,
+                        score: session.patience,
+                        persona: session.persona.name,
+                        scenario: session.scenarioName,
+                        solved: session.solved,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    setView('leaderboard');
+                } catch (e) { console.error(e); }
+                setIsSaving(false);
+            };
+
+            // --- Views ---
+
+            if (view === 'auth') return (
+                <div className="h-screen bg-[#17494D] flex items-center justify-center text-white font-sans">
+                    <div className="flex flex-col items-center space-y-6 animate-pulse">
+                        <div className="w-16 h-16 bg-white/20 rounded-3xl flex items-center justify-center"><Zap size={40} /></div>
+                        <span className="font-black tracking-[0.3em] uppercase text-sm">Initializing Portal</span>
+                    </div>
+                </div>
+            );
+
+            if (view === 'portal') return (
+                <div className="h-screen bg-[#F8F9F9] flex flex-col font-sans overflow-hidden">
+                    <nav className="h-16 bg-[#17494D] flex items-center justify-between px-8 text-white shrink-0">
+                        <div className="flex items-center space-x-3">
+                            <Zap className="text-white" size={24} />
+                            <span className="font-black tracking-tight text-xl italic">SIM<span className="text-white/60">ENGINE</span></span>
+                        </div>
+                        <div className="flex items-center space-x-6">
+                             <div className="flex items-center space-x-2">
+                                 <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                                 <span className="text-[10px] font-bold uppercase tracking-widest text-white/60 underline decoration-emerald-400">Bureau Connected</span>
+                             </div>
+                             <button onClick={() => setView('leaderboard')} className="text-xs font-bold uppercase hover:text-emerald-400 transition-colors">Leaderboard</button>
+                             <div className="w-px h-6 bg-white/10" />
+                             <div className="flex items-center space-x-3">
+                                 <span className="text-xs font-bold">{techName || 'Anonymous Agent'}</span>
+                                 <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-[10px] font-black">{techName[0] || '?'}</div>
+                             </div>
+                        </div>
+                    </nav>
+
+                    <main className="flex-1 overflow-y-auto p-12">
+                        <div className="max-w-6xl mx-auto space-y-12">
+                            <div className="flex items-end justify-between border-b-2 border-slate-200 pb-6">
+                                <div className="space-y-1">
+                                    <h1 className="text-4xl font-black text-[#2F3941]">Training Hub</h1>
+                                    <p className="text-slate-500 font-medium">Select a mission persona to start your support simulation.</p>
+                                </div>
+                                {!techName && (
+                                     <div className="flex items-center space-x-2 bg-rose-50 text-rose-600 px-4 py-2 rounded-xl border border-rose-100">
+                                         <AlertCircle size={16} />
+                                         <span className="text-xs font-bold">Technician ID Required</span>
+                                     </div>
+                                )}
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                                {Object.values(PERSONAS).map(p => (
+                                    <div key={p.name} className="group relative bg-white border border-slate-200 rounded-[2rem] overflow-hidden hover:shadow-2xl hover:border-[#17494D] transition-all duration-500">
+                                        <div className={`h-24 ${p.color} flex items-end px-6 pb-4`}>
+                                             <div className="w-12 h-12 bg-white rounded-2xl shadow-lg flex items-center justify-center text-xl font-black text-slate-800">
+                                                 {p.name[0]}
+                                             </div>
+                                        </div>
+                                        <div className="p-6 space-y-4">
+                                            <div>
+                                                <h3 className="text-xl font-black text-slate-800">{p.name}</h3>
+                                                <p className="text-[10px] font-bold text-[#17494D] uppercase tracking-widest">{p.style}</p>
+                                            </div>
+                                            <p className="text-xs text-slate-500 font-medium leading-relaxed h-12">{p.description}</p>
+                                            <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                                                 <div className="flex flex-col">
+                                                     <span className="text-[9px] font-bold text-slate-400 uppercase">Drive</span>
+                                                     <span className="text-xs font-black text-slate-700">{p.drive}</span>
+                                                 </div>
+                                                 <button 
+                                                     disabled={!techName.trim()}
+                                                     onClick={initSimulation}
+                                                     className="p-3 bg-[#F8F9F9] group-hover:bg-[#17494D] group-hover:text-white rounded-xl transition-all"
+                                                 >
+                                                     <ChevronRight size={18} />
+                                                 </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {!techName && (
+                                <div className="max-w-md mx-auto bg-white p-8 rounded-3xl border-2 border-dashed border-slate-200 text-center space-y-6">
+                                     <div className="space-y-2">
+                                         <h2 className="text-xl font-bold">New Technician Detected</h2>
+                                         <p className="text-sm text-slate-500">Please provide your Support ID to track your progress and certifications.</p>
+                                     </div>
+                                     <input 
+                                         className="w-full p-4 bg-[#F8F9F9] rounded-xl text-center font-black border-2 border-transparent focus:border-[#17494D] outline-none transition-all"
+                                         placeholder="Enter ID (e.g. AGENT-402)"
+                                         value={techName}
+                                         onChange={(e) => setTechName(e.target.value)}
+                                     />
+                                </div>
+                            )}
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div className="bg-white p-8 rounded-[2rem] border border-slate-200 flex items-center space-x-6 shadow-sm">
+                                     <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center"><Target /></div>
+                                     <div>
+                                         <p className="text-2xl font-black">94%</p>
+                                         <p className="text-xs font-bold text-slate-400 uppercase">Avg Resolution</p>
+                                     </div>
+                                </div>
+                                <div className="bg-white p-8 rounded-[2rem] border border-slate-200 flex items-center space-x-6 shadow-sm">
+                                     <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center"><Activity /></div>
+                                     <div>
+                                         <p className="text-2xl font-black">Lvl 4</p>
+                                         <p className="text-xs font-bold text-slate-400 uppercase">Bureau Standing</p>
+                                     </div>
+                                </div>
+                                <div className="bg-white p-8 rounded-[2rem] border border-slate-200 flex items-center space-x-6 shadow-sm">
+                                     <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center"><Globe /></div>
+                                     <div>
+                                         <p className="text-2xl font-black">Global</p>
+                                         <p className="text-xs font-bold text-slate-400 uppercase">Training Ready</p>
+                                     </div>
+                                </div>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            );
+
+            if (view === 'leaderboard') return (
+                <div className="h-screen bg-[#F8F9F9] flex flex-col font-sans overflow-hidden">
+                    <nav className="h-16 bg-[#2F3941] flex items-center justify-between px-8 text-white shrink-0">
+                        <div className="flex items-center space-x-3">
+                            <Trophy className="text-amber-400" size={24} />
+                            <span className="font-black tracking-tight text-xl uppercase italic">Leaderboard</span>
+                        </div>
+                        <button onClick={() => setView('portal')} className="text-xs font-black uppercase text-white/60 hover:text-white transition-colors">Return to Hub</button>
+                    </nav>
+                    <div className="flex-1 overflow-y-auto p-12 flex justify-center">
+                        <div className="w-full max-w-2xl bg-white shadow-2xl rounded-[2.5rem] border border-[#D8DCDE] overflow-hidden">
+                            <div className="bg-gradient-to-br from-[#2F3941] to-[#1F262B] p-12 text-center relative">
+                                 <Trophy className="absolute -right-6 -top-6 text-white/5 w-40 h-40 rotate-12" />
+                                 <h2 className="text-4xl font-black text-white italic tracking-tighter uppercase">Bureau Elite</h2>
+                                 <p className="text-amber-400/80 text-[10px] font-bold tracking-[0.3em] uppercase mt-4">Top 10 Support Specialists</p>
+                            </div>
+                            <div className="p-8 space-y-4">
+                                {leaderboard.length === 0 ? (
+                                    <div className="py-20 text-center space-y-4">
+                                         <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-300"><History size={32} /></div>
+                                         <p className="text-slate-400 font-bold italic">No certified sessions recorded yet.</p>
+                                    </div>
+                                ) : (
+                                    leaderboard.map((s, i) => (
+                                        <div key={i} className="flex items-center justify-between p-5 bg-[#F8F9F9] rounded-2xl border border-[#E9EBED] hover:scale-[1.02] transition-transform cursor-default">
+                                            <div className="flex items-center space-x-6">
+                                                <span className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm ${i === 0 ? 'bg-amber-400 text-amber-900' : i === 1 ? 'bg-slate-300 text-slate-800' : i === 2 ? 'bg-orange-300 text-orange-900' : 'bg-[#CFD4D7] text-[#68737D]'}`}>
+                                                    {i + 1}
+                                                </span>
+                                                <div>
+                                                    <p className="font-black text-[#2F3941]">{s.techName}</p>
+                                                    <p className="text-[10px] font-bold text-[#68737D] uppercase tracking-wide">{s.persona} • {s.scenario}</p>
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className={`text-2xl font-black ${s.score > 70 ? 'text-emerald-500' : 'text-rose-500'}`}>{s.score}%</span>
+                                                <p className={`text-[8px] font-black uppercase tracking-widest mt-1 ${s.solved ? 'text-emerald-400' : 'text-[#CFD4D7]'}`}>{s.solved ? 'Certification Verified' : 'Incomplete'}</p>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            if (view === 'review') return (
+                <div className="h-screen bg-[#F8F9F9] flex items-center justify-center font-sans overflow-hidden">
+                    <div className="w-full max-w-2xl bg-white shadow-[0_25px_50px_-12px_rgba(0,0,0,0.15)] rounded-[3rem] border border-[#D8DCDE] overflow-hidden">
+                        <div className="bg-[#17494D] p-12 text-white text-center">
+                            <div className="w-20 h-20 bg-white/20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-xl"><CheckCircle2 size={40} className="text-emerald-400" /></div>
+                            <h2 className="text-4xl font-black italic tracking-tighter">Session Complete</h2>
+                            <p className="text-white/40 text-[10px] font-black uppercase tracking-[0.4em] mt-3">Technician Assessment Bureau</p>
+                        </div>
+                        <div className="p-12 space-y-10">
+                             <div className="grid grid-cols-3 gap-6">
+                                    <div className="p-6 bg-[#F8F9F9] rounded-3xl border border-[#E9EBED] text-center space-y-1">
+                                        <span className="text-[10px] font-black text-[#68737D] uppercase tracking-widest">Persona</span>
+                                        <p className="font-black text-lg">{session.persona.name}</p>
+                                    </div>
+                                    <div className="p-6 bg-[#F8F9F9] rounded-3xl border border-[#E9EBED] text-center space-y-1">
+                                        <span className="text-[10px] font-black text-[#68737D] uppercase tracking-widest">Resolution</span>
+                                        <p className={`font-black text-lg ${session.solved ? 'text-emerald-600' : 'text-rose-600'}`}>{session.solved ? 'Success' : 'Incomplete'}</p>
+                                    </div>
+                                    <div className="p-6 bg-[#F8F9F9] rounded-3xl border border-[#E9EBED] text-center space-y-1">
+                                        <span className="text-[10px] font-black text-[#68737D] uppercase tracking-widest">Patience</span>
+                                        <p className="font-black text-lg">{session.patience}%</p>
+                                    </div>
+                             </div>
+                             
+                             <div className="p-8 bg-[#2F3941] rounded-[2rem] text-white relative overflow-hidden">
+                                    <div className="relative flex items-start space-x-4">
+                                         <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center shrink-0"><Terminal size={20} className="text-emerald-400" /></div>
+                                         <div className="text-sm text-white/80 leading-relaxed italic">
+                                             "The root cause was <span className="text-white font-black underline decoration-emerald-400 underline-offset-4">{session.scenarioData.cause}</span>. 
+                                             {session.solved ? " You correctly diagnosed the issue." : " You missed the root cause in your troubleshooting."}
+                                             {session.techLevel >= 4 ? " This high-tech customer needed absolute technical precision." : " This low-tech customer needed patient, plain-language guidance."}
+                                             "
+                                         </div>
+                                    </div>
+                             </div>
+                             
+                             <div className="flex flex-col space-y-4">
+                                    <button 
+                                        onClick={finalizeSession}
+                                        disabled={isSaving}
+                                        className="w-full py-6 bg-[#17494D] text-white font-black rounded-2xl shadow-2xl hover:bg-[#12363a] transition-all flex items-center justify-center space-x-3 text-lg"
+                                    >
+                                        {isSaving ? <MoreHorizontal className="animate-pulse" /> : <><Trophy size={20} /><span>Verify Certification</span></>}
+                                    </button>
+                                    <button 
+                                        onClick={() => setView('portal')}
+                                        className="w-full py-2 text-[#68737D] font-black hover:text-[#17494D] transition-colors uppercase text-[10px] tracking-widest"
+                                    >
+                                        Discard Result
+                                    </button>
+                             </div>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            return (
+                <div className="flex h-screen bg-[#F8F9F9] text-[#2F3941] font-sans overflow-hidden">
+                    <div className="w-[60px] bg-[#17494D] flex flex-col items-center py-4 space-y-6 shrink-0 shadow-2xl z-20">
+                        <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-white mb-2 shadow-inner"><Zap size={22} /></div>
+                        <div className="space-y-6">
+                            <div className="text-white/60 hover:text-white cursor-pointer p-2 hover:bg-white/5 rounded-lg transition-all" onClick={() => setView('portal')}><Home size={20} /></div>
+                            <div className="text-white bg-white/20 p-2 rounded-lg shadow-inner cursor-default"><MessageSquare size={20} /></div>
+                            <div className="text-white/40 p-2 rounded-lg cursor-not-allowed opacity-50"><Users size={20} /></div>
+                            <div className="text-white/40 p-2 rounded-lg cursor-not-allowed opacity-50"><BarChart3 size={20} /></div>
+                        </div>
+                        <div className="mt-auto space-y-6">
+                            <div className="text-white/40 p-2 rounded-lg cursor-not-allowed opacity-50"><Settings size={20} /></div>
+                            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-[10px] font-black text-white uppercase">{techName[0] || 'T'}</div>
+                        </div>
+                    </div>
+
+                    <div className="w-[280px] bg-white border-r border-[#D8DCDE] hidden xl:flex flex-col shrink-0">
+                        <div className="p-4 h-16 border-b border-[#D8DCDE] flex items-center justify-between">
+                            <span className="font-bold text-sm">Views</span>
+                            <Plus size={16} className="text-[#68737D] cursor-pointer hover:text-[#17494D]" />
+                        </div>
+                        <div className="flex-1 p-2 space-y-1 overflow-y-auto">
+                            <div className="bg-[#E9EBED] text-[#2F3941] font-bold p-3 rounded-xl text-sm flex justify-between items-center cursor-default shadow-sm">
+                                <span className="truncate">Your unsolved tickets</span>
+                                <span className="bg-[#CFD4D7] px-2 py-0.5 rounded-full text-[10px]">1</span>
+                            </div>
+                            <div className="p-3 text-sm text-[#68737D] hover:bg-[#F8F9F9] rounded-xl cursor-not-allowed">Unassigned tickets</div>
+                            <div className="p-3 text-sm text-[#68737D] hover:bg-[#F8F9F9] rounded
